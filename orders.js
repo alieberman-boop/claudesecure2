@@ -1,23 +1,22 @@
 const express = require('express');
 const router = express.Router();
-const database = require('../models/db'); 
+const database = require('../models/db');
 
-// Category: Auth & Access (Insecure Direct Object Reference / BOLA)
-// Severity: Medium (Exploitable behind authentication, requires a known identifier)
+// CS-006 fix: both id AND user_id must match — prevents horizontal access to other users' orders.
+// Returns 404 (not 403) to avoid leaking whether a foreign order ID exists.
 router.get('/orders/:orderId', (req, res) => {
-    // The user context exists from the session auth middle-ware
-    const authenticatedUser = req.user.id; 
+    const authenticatedUser = req.user.id;
     const requestedOrder = req.params.orderId;
 
-    // Claude Security flags this logic bug: 
-    // It queries strictly by orderId, failing to validate if authenticatedUser == order.user_id
-    database.query('SELECT * FROM user_orders WHERE id = ?', [requestedOrder], (error, results) => {
-        if (error) return res.status(500).send(error);
-        if (results.length === 0) return res.status(404).send('Order not found');
-        
-        // Vulnerable: Any authenticated user can supply any orderId and retrieve someone else's order data
-        res.json(results[0]); 
-    });
+    database.query(
+        'SELECT * FROM user_orders WHERE id = ? AND user_id = ?',
+        [requestedOrder, authenticatedUser],
+        (error, results) => {
+            if (error) return res.status(500).send(error);
+            if (results.length === 0) return res.status(404).send('Order not found');
+            res.json(results[0]);
+        }
+    );
 });
 
 module.exports = router;
